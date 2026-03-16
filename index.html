@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NamHub | Pro Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: { colors: { darker: '#020617', dark: '#0f172a', primary: '#3b82f6' } } }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    <style>
+        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; outline: none !important; }
+        body { background-color: #020617; color: #f8fafc; font-family: sans-serif; overflow-x: hidden; }
+        
+        /* Background System */
+        #bg-container { position: fixed; inset: 0; z-index: -2; overflow: hidden; background-color: #020617; }
+        #bg-video, #bg-image { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; transition: opacity 0.5s ease; }
+        #bg-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: -1; }
+
+        .glass { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+        .card-anim { transition: all 0.3s ease; cursor: pointer; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.05); }
+        .card-anim:hover { transform: translateY(-5px); border-color: #3b82f6; box-shadow: 0 10px 20px -10px rgba(59, 130, 246, 0.5); }
+        
+        .btn-action { transition: all 0.2s ease; }
+        .btn-action:active { transform: scale(0.9); }
+
+        /* Admin States */
+        .admin-only { display: none !important; }
+        .is-admin .admin-only { display: flex !important; }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .animate-in { animation: fadeIn 0.3s ease-out; }
+    </style>
+</head>
+<body id="mainBody">
+    <div id="bg-container">
+        <img id="bg-image" class="opacity-0">
+        <video id="bg-video" autoplay muted loop playsinline class="opacity-0"></video>
+    </div>
+    <div id="bg-overlay"></div>
+
+    <header class="glass border-b border-white/5 fixed top-0 w-full z-[60]">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div id="logoTrigger" class="flex items-center space-x-2 cursor-pointer select-none">
+                <div class="bg-primary p-1 rounded-xl w-10 h-10 flex items-center justify-center overflow-hidden shadow-lg shadow-blue-500/30">
+                    <i id="logo-icon" class="fa-solid fa-bolt text-white text-xl"></i>
+                    <img id="main-logo" src="" class="hidden w-full h-full object-cover rounded-lg">
+                </div>
+                <span class="text-white font-black text-xl uppercase tracking-tighter">NAM<span class="text-primary">HUB</span></span>
+            </div>
+            <button onclick="logoutAdmin()" class="admin-only bg-red-500/20 text-red-500 border border-red-500/30 px-4 py-2 rounded-xl text-[10px] font-black uppercase">Thoát</button>
+        </div>
+    </header>
+
+    <nav class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60] glass border border-white/10 p-1.5 rounded-2xl shadow-2xl flex items-center">
+        <button onclick="switchTab('home')" id="tab-home" class="px-8 py-3 rounded-xl text-[11px] font-black uppercase transition-all text-primary bg-primary/10">Scripts</button>
+        <button onclick="switchTab('client')" id="tab-client" class="px-8 py-3 rounded-xl text-[11px] font-black uppercase transition-all text-slate-500">Clients</button>
+    </nav>
+
+    <main class="pt-24 pb-32 px-4 max-w-7xl mx-auto">
+        <section id="home-tools">
+            <input type="text" id="mainSearch" oninput="renderContent(this.value)" placeholder="Tìm tài nguyên..." class="w-full bg-dark/60 border border-white/10 p-4 rounded-2xl text-sm mb-6 outline-none focus:border-primary/50 transition-all shadow-inner">
+            <div id="catFilters" class="flex overflow-x-auto space-x-2 mb-8 pb-2"></div>
+            <div id="content-home" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+        </section>
+
+        <section id="content-create" class="hidden max-w-xl mx-auto bg-dark p-6 rounded-[2rem] border border-white/10 shadow-2xl animate-in">
+            <h2 class="text-white font-black text-center mb-6 uppercase">Đăng bài mới</h2>
+            <form id="postForm" class="space-y-4">
+                <input type="text" id="pTitle" placeholder="Tiêu đề bài viết" class="w-full bg-darker border border-white/5 p-4 rounded-xl text-white outline-none">
+                <div class="grid grid-cols-2 gap-4">
+                    <select id="pTab" onchange="updateFormCats()" class="bg-darker border border-white/5 p-4 rounded-xl text-slate-400 font-bold uppercase text-[10px]">
+                        <option value="home">Scripts</option>
+                        <option value="client">Clients</option>
+                    </select>
+                    <select id="pCat" class="bg-darker border border-white/5 p-4 rounded-xl text-slate-400 font-bold uppercase text-[10px]"></select>
+                </div>
+                <div class="relative border-2 border-dashed border-white/10 rounded-xl p-4 text-center cursor-pointer hover:bg-white/5 transition-all">
+                    <input type="file" id="pFile" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer">
+                    <span id="pFileName" class="text-[10px] text-slate-500 font-bold uppercase">Tải ảnh bài viết</span>
+                </div>
+                <textarea id="pDesc" placeholder="Mô tả chi tiết..." class="w-full bg-darker border border-white/5 p-4 rounded-xl text-white h-24 outline-none resize-none"></textarea>
+                <textarea id="pCode" placeholder="Link tải hoặc mã Script..." class="w-full bg-[#010409] border border-white/5 p-4 rounded-xl text-blue-400 font-mono text-[11px] h-32 outline-none"></textarea>
+                <div class="flex gap-2">
+                    <button type="button" onclick="showSection('home')" class="flex-1 py-4 text-slate-500 font-bold text-xs">HỦY</button>
+                    <button type="submit" class="flex-1 bg-primary text-white font-black rounded-xl text-xs uppercase shadow-lg shadow-blue-500/20">Xác nhận 🚀</button>
+                </div>
+            </form>
+        </section>
+    </main>
+
+    <div id="settingsModal" class="fixed inset-0 z-[110] hidden items-center justify-center p-4 bg-black/95 animate-in">
+        <div class="bg-dark w-full max-w-md rounded-[2.5rem] border border-white/10 p-8 space-y-8 shadow-2xl">
+            <div class="flex justify-between items-center border-b border-white/5 pb-4">
+                <h2 class="text-white font-black text-sm uppercase tracking-widest">Cấu hình hệ thống</h2>
+                <button onclick="closeSettings()"><i class="fa-solid fa-xmark text-slate-500"></i></button>
+            </div>
+
+            <div class="space-y-3">
+                <label class="text-[10px] font-black text-primary uppercase">1. Cài đặt Logo</label>
+                <input type="text" id="logoUrl" placeholder="Dán link ảnh logo..." class="w-full bg-darker border border-white/5 p-3 rounded-xl text-xs text-white outline-none">
+                <div class="relative border border-white/10 rounded-xl p-3 text-center bg-white/5 cursor-pointer">
+                    <input type="file" id="logoFile" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer">
+                    <span id="logoFileName" class="text-[9px] text-slate-400 font-bold">HOẶC TẢI FILE LOGO</span>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="saveSetting('logo', 'logoUrl', 'tempLogo')" class="flex-1 bg-primary text-white py-3 rounded-xl text-[10px] font-black uppercase btn-action">Lưu Logo</button>
+                    <button onclick="deleteSetting('logo')" class="px-4 bg-red-500/10 text-red-500 rounded-xl"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <label class="text-[10px] font-black text-primary uppercase">2. Cài đặt Hình nền / Video</label>
+                <input type="text" id="bgUrl" placeholder="Dán link ảnh hoặc video (.mp4)..." class="w-full bg-darker border border-white/5 p-3 rounded-xl text-xs text-white outline-none">
+                <div class="relative border border-white/10 rounded-xl p-3 text-center bg-white/5 cursor-pointer">
+                    <input type="file" id="bgFile" accept="image/*,video/mp4" class="absolute inset-0 opacity-0 cursor-pointer">
+                    <span id="bgFileName" class="text-[9px] text-slate-400 font-bold">HOẶC TẢI FILE (ẢNH/VIDEO)</span>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="saveSetting('background', 'bgUrl', 'tempBg')" class="flex-1 bg-primary text-white py-3 rounded-xl text-[10px] font-black uppercase btn-action">Lưu hình nền</button>
+                    <button onclick="deleteSetting('background')" class="px-4 bg-red-500/10 text-red-500 rounded-xl"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="detailModal" class="fixed inset-0 z-[120] hidden items-end md:items-center justify-center bg-black/90 p-0 md:p-4">
+        <div class="bg-dark w-full max-w-2xl md:rounded-[2.5rem] rounded-t-[2.5rem] border-t md:border border-white/10 overflow-hidden flex flex-col max-h-[90vh] animate-in">
+            <div class="relative h-48 md:h-64 flex-shrink-0">
+                <img id="dImg" src="" class="w-full h-full object-cover">
+                <div class="absolute inset-0 bg-gradient-to-t from-dark to-transparent"></div>
+                <button onclick="closeDetail()" class="absolute top-6 right-6 w-10 h-10 glass rounded-full text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-6 md:p-8 overflow-y-auto space-y-4">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <span id="dCat" class="text-[9px] font-black text-primary uppercase bg-primary/10 px-3 py-1 rounded-full">CAT</span>
+                        <h2 id="dTitle" class="text-white font-black text-2xl uppercase mt-3">TITLE</h2>
+                    </div>
+                    <button id="dCopyBtn" class="bg-primary text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase shadow-lg btn-action">Copy Script</button>
+                </div>
+                <div class="bg-white/5 p-4 rounded-2xl"><p id="dDesc" class="text-slate-400 text-sm leading-relaxed whitespace-pre-line"></p></div>
+                <div id="dCode" class="bg-[#010409] p-4 rounded-2xl border border-white/5 font-mono text-[11px] text-blue-400 break-all whitespace-pre-wrap max-h-40 overflow-y-auto"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="adminTools" class="admin-only fixed bottom-24 right-6 z-[55] flex flex-col gap-3">
+        <button onclick="showSection('create')" class="w-14 h-14 bg-green-500 text-white rounded-2xl shadow-xl flex items-center justify-center btn-action"><i class="fa-solid fa-plus"></i></button>
+        <button onclick="openSettingsModal()" class="w-14 h-14 bg-indigo-500 text-white rounded-2xl shadow-xl flex items-center justify-center btn-action"><i class="fa-solid fa-gear"></i></button>
+        <button onclick="openCatModal()" class="w-14 h-14 bg-primary text-white rounded-2xl shadow-xl flex items-center justify-center btn-action"><i class="fa-solid fa-tags"></i></button>
+    </div>
+
+    <div id="catModal" class="fixed inset-0 z-[110] hidden items-center justify-center p-4 bg-black/90">
+        <div class="bg-dark w-full max-w-sm rounded-[2.5rem] border border-white/10 p-6 space-y-4 shadow-2xl">
+            <div class="flex justify-between items-center"><h2 class="text-white font-black text-xs uppercase">Quản lý Tab</h2><button onclick="closeCatModal()"><i class="fa-solid fa-xmark text-slate-500"></i></button></div>
+            <div class="flex gap-2">
+                <input type="text" id="newCatInput" placeholder="Tên tab..." class="flex-1 bg-darker border border-white/5 p-3 rounded-xl text-xs text-white outline-none">
+                <button onclick="addCat()" class="bg-primary px-4 rounded-xl text-white text-[10px] font-bold">Thêm</button>
+            </div>
+            <div id="adminCatList" class="space-y-2 max-h-60 overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <div id="toastContainer" class="fixed top-20 left-1/2 -translate-x-1/2 z-[200] flex flex-col gap-2 pointer-events-none items-center"></div>
+
+    <script>
+        // FIREBASE CONFIG
+        const firebaseConfig = {
+            apiKey: "AIzaSyDQat0TVQ3TP67_nT6OoJRdAkYbcF2DRxI",
+            authDomain: "mura-bde04.firebaseapp.com",
+            databaseURL: "https://mura-bde04-default-rtdb.firebaseio.com",
+            projectId: "mura-bde04",
+            storageBucket: "mura-bde04.firebasestorage.app",
+            messagingSenderId: "105003024174",
+            appId: "1:105003024174:web:4abab6b92e5cd4822b44bf",
+            measurementId: "G-4LFFSPVD85"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let allData = [], cats = { home: ["Mới"], client: ["Mới"] };
+        let activeTab = 'home', activeCat = 'all', isAdmin = false, pressTimer;
+        let tempLogo = null, tempBg = null, selectedImg = null;
+
+        function init() {
+            db.ref('scripts').on('value', s => {
+                const val = s.val();
+                allData = val ? Object.entries(val).map(([id, v]) => ({id, ...v})).sort((a,b) => b.date - a.date) : [];
+                renderContent();
+            });
+            db.ref('categories').on('value', s => { if(s.val()) { cats = s.val(); renderFilters(); updateFormCats(); } });
+            db.ref('settings').on('value', s => {
+                const set = s.val() || {};
+                applyLogo(set.logo);
+                applyBackground(set.background);
+            });
+            if(localStorage.getItem('admin_session') === 'true') loginSuccess();
+        }
+
+        // --- HỆ THỐNG FILE & LINK ---
+        async function saveSetting(key, inputId, tempVar) {
+            const url = document.getElementById(inputId).value;
+            const finalData = url || (tempVar === 'tempLogo' ? tempLogo : tempBg);
+            if(finalData) {
+                await db.ref('settings/' + key).set(finalData);
+                showToast(`✅ ĐÃ LƯU ${key.toUpperCase()}`);
+                closeSettings();
+                // Reset temp
+                if(tempVar === 'tempLogo') tempLogo = null; else tempBg = null;
+                document.getElementById(inputId).value = '';
+            }
+        }
+
+        async function deleteSetting(key) {
+            if(confirm(`Xóa ${key}?`)) {
+                await db.ref('settings/' + key).remove();
+                showToast("🗑️ ĐÃ XÓA");
+                closeSettings();
+            }
+        }
+
+        function handleFileUpload(file, type, cb) {
+            const reader = new FileReader();
+            reader.onload = (e) => cb(e.target.result);
+            reader.readAsDataURL(file);
+        }
+
+        document.getElementById('logoFile').onchange = (e) => handleFileUpload(e.target.files[0], 'img', b => {
+            tempLogo = b; document.getElementById('logoFileName').innerText = "✅ FILE SẴN SÀNG";
+        });
+
+        document.getElementById('bgFile').onchange = (e) => {
+            const file = e.target.files[0];
+            handleFileUpload(file, file.type.includes('video') ? 'vid' : 'img', b => {
+                tempBg = b; document.getElementById('bgFileName').innerText = "✅ FILE SẴN SÀNG";
+            });
+        };
+
+        function applyLogo(url) {
+            const icon = document.getElementById('logo-icon'), img = document.getElementById('main-logo');
+            if(url) { icon.classList.add('hidden'); img.src = url; img.classList.remove('hidden'); }
+            else { img.classList.add('hidden'); icon.classList.remove('hidden'); }
+        }
+
+        function applyBackground(url) {
+            const v = document.getElementById('bg-video'), i = document.getElementById('bg-image');
+            v.style.opacity = '0'; i.style.opacity = '0';
+            setTimeout(() => {
+                if(!url) return;
+                if(url.includes('video/mp4') || url.includes('.mp4') || url.startsWith('data:video')) {
+                    v.src = url; v.classList.remove('hidden'); v.style.opacity = '1'; i.classList.add('hidden');
+                } else {
+                    i.src = url; i.classList.remove('hidden'); i.style.opacity = '1'; v.classList.add('hidden');
+                }
+            }, 500);
+        }
+
+        // --- ADMIN LOGIN (ẤN GIỮ 5S) ---
+        const logo = document.getElementById('logoTrigger');
+        logo.onmousedown = logo.ontouchstart = () => {
+            pressTimer = setTimeout(() => {
+                if(prompt("MÃ PIN ADMIN:") === "2010") loginSuccess();
+            }, 3000);
+        };
+        logo.onmouseup = logo.ontouchend = () => clearTimeout(pressTimer);
+
+        function loginSuccess() {
+            isAdmin = true; localStorage.setItem('admin_session', 'true');
+            document.getElementById('mainBody').classList.add('is-admin');
+            renderContent(); showToast("🔓 ADMIN MODE");
+        }
+
+        function logoutAdmin() {
+            isAdmin = false; localStorage.removeItem('admin_session');
+            document.getElementById('mainBody').classList.remove('is-admin');
+            showSection('home'); renderContent();
+        }
+
+        // --- RENDER & LOGIC ---
+        function renderContent(search = '') {
+            const container = document.getElementById('content-home'); container.innerHTML = '';
+            const filtered = allData.filter(i => i.tab === activeTab && (activeCat === 'all' || i.cat === activeCat) && i.title.toLowerCase().includes(search.toLowerCase()));
+            filtered.forEach(item => {
+                const div = document.createElement('div');
+                div.className = "card-anim rounded-[2rem] overflow-hidden relative flex flex-col group shadow-lg";
+                div.innerHTML = `
+                    <button onclick="copyScript('${item.code.replace(/'/g, "\\'")}', event)" class="absolute top-3 left-3 z-20 w-8 h-8 bg-primary text-white rounded-xl text-[10px] shadow-lg active:scale-90"><i class="fa-solid fa-copy"></i></button>
+                    ${isAdmin ? `<button onclick="deleteItem('${item.id}', event)" class="absolute top-3 right-3 z-20 w-8 h-8 bg-red-500 text-white rounded-xl text-[10px]"><i class="fa-solid fa-trash"></i></button>` : ''}
+                    <div onclick="openDetail('${item.id}')" class="aspect-video bg-slate-900 overflow-hidden">
+                        <img src="${item.image}" class="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500">
+                    </div>
+                    <div onclick="openDetail('${item.id}')" class="p-4">
+                        <span class="text-[8px] font-black text-primary uppercase tracking-tighter">${item.cat}</span>
+                        <h3 class="text-white text-[11px] font-bold truncate uppercase mt-1">${item.title}</h3>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function openDetail(id) {
+            const item = allData.find(i => i.id === id);
+            if(!item) return;
+            document.getElementById('dImg').src = item.image;
+            document.getElementById('dCat').innerText = item.cat;
+            document.getElementById('dTitle').innerText = item.title;
+            document.getElementById('dDesc').innerText = item.desc || "Không có mô tả.";
+            document.getElementById('dCode').innerText = item.code;
+            document.getElementById('dCopyBtn').onclick = () => copyScript(item.code);
+            document.getElementById('detailModal').classList.replace('hidden', 'flex');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeDetail() { document.getElementById('detailModal').classList.replace('flex', 'hidden'); document.body.style.overflow = 'auto'; }
+        function copyScript(text, e) { if(e) e.stopPropagation(); navigator.clipboard.writeText(text); showToast("✅ ĐÃ COPY"); }
+        function showToast(m) { const t = document.createElement('div'); t.className = "bg-primary text-white text-[10px] font-black px-6 py-3 rounded-full shadow-2xl uppercase mb-2 animate-in"; t.innerText = m; document.getElementById('toastContainer').appendChild(t); setTimeout(() => t.remove(), 2500); }
+        function openSettingsModal() { document.getElementById('settingsModal').classList.replace('hidden', 'flex'); }
+        function closeSettings() { document.getElementById('settingsModal').classList.replace('flex', 'hidden'); }
+        function openCatModal() { document.getElementById('catModal').classList.replace('hidden', 'flex'); renderAdminCats(); }
+        function closeCatModal() { document.getElementById('catModal').classList.replace('flex', 'hidden'); }
+        function showSection(id) { document.getElementById('home-tools').classList.toggle('hidden', id !== 'home'); document.getElementById('content-create').classList.toggle('hidden', id !== 'create'); }
+        function switchTab(t) { activeTab = t; activeCat = 'all'; document.querySelectorAll('nav button').forEach(b => b.className = b.id === `tab-${t}` ? "px-8 py-3 rounded-xl text-[11px] font-black uppercase transition-all text-primary bg-primary/10" : "px-8 py-3 rounded-xl text-[11px] font-black uppercase transition-all text-slate-500"); renderFilters(); renderContent(); }
+        function setCat(c) { activeCat = c; renderFilters(); renderContent(); }
+        function updateFormCats() { const t = document.getElementById('pTab').value; document.getElementById('pCat').innerHTML = (cats[t] || []).map(c => `<option value="${c}">${c}</option>`).join(''); }
+        function renderAdminCats() { const list = document.getElementById('adminCatList'); list.innerHTML = ''; (cats[activeTab] || []).forEach((c, i) => { list.innerHTML += `<div class="flex justify-between items-center bg-white/5 p-3 rounded-xl mb-2"><span class="text-xs text-white">${c}</span><button onclick="delCat(${i})" class="text-red-500"><i class="fa-solid fa-trash"></i></button></div>`; }); }
+        async function addCat() { const inp = document.getElementById('newCatInput'); if(!inp.value) return; cats[activeTab].push(inp.value); await db.ref('categories').set(cats); inp.value = ''; renderAdminCats(); renderFilters(); }
+        async function delCat(i) { cats[activeTab].splice(i, 1); await db.ref('categories').set(cats); renderAdminCats(); renderFilters(); }
+        async function deleteItem(id, e) { e.stopPropagation(); if(confirm("Xóa bài viết này?")) await db.ref('scripts/'+id).remove(); }
+        
+        document.getElementById('postForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const data = {
+                title: document.getElementById('pTitle').value, tab: document.getElementById('pTab').value,
+                cat: document.getElementById('pCat').value, desc: document.getElementById('pDesc').value,
+                code: document.getElementById('pCode').value, image: selectedImg || 'https://via.placeholder.com/400', date: Date.now()
+            };
+            await db.ref('scripts').push(data);
+            showToast("✅ ĐÃ ĐĂNG"); showSection('home'); e.target.reset(); selectedImg = null;
+        };
+        
+        document.getElementById('pFile').onchange = (e) => {
+            handleFileUpload(e.target.files[0], 'img', b => { selectedImg = b; document.getElementById('pFileName').innerText = "✅ ẢNH ĐÃ CHỌN"; });
+        };
+
+        function renderFilters() {
+            const container = document.getElementById('catFilters');
+            const target = cats[activeTab] || [];
+            container.innerHTML = `<button onclick="setCat('all')" class="whitespace-nowrap px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${activeCat === 'all' ? 'bg-primary text-white shadow-lg' : 'bg-white/5 text-slate-500'}">Tất cả</button>`;
+            target.forEach(c => {
+                container.innerHTML += `<button onclick="setCat('${c}')" class="whitespace-nowrap px-6 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${activeCat === c ? 'bg-primary text-white shadow-lg' : 'bg-white/5 text-slate-500'}">${c}</button>`;
+            });
+        }
+
+        init();
+    </script>
+</body>
+</html>
